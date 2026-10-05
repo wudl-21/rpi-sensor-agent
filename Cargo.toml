@@ -1,0 +1,20 @@
+[package]
+name = "sensor-agent"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.104"
+chrono = "0.4.45"
+notify = "8.2.0"
+reqwest = { version = "0.13.5", features = ["rustls"] }
+rumqttc = { version = "0.25.1", default-features = false, features = ["use-rustls"] }
+rusqlite = { version = "0.40.2", features = ["bundled"] } # - bundled 把 SQLite 源码编进二进制, Pi 上不用 apt install libsqlite3-dev
+sd-notify = "0.5.0"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+sha2 = "0.11.0"
+tokio = { version = "1.53.1", features = ["full"] }
+toml = "1.1.6"
+tracing = "0.1.44"
+tracing-subscriber = "0.3.23"

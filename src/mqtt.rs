@@ -1,0 +1,133 @@
+//! MQTT 客户端：长连接 / 上线 / 采样 / 离线
+use crate::version;
+use anyhow::Result;
+use rumqttc::{AsyncClient, Event, Incoming, MqttOptions, QoS};
+use std::time::Duration;
+use tracing::{info, warn};
+
+pub struct Mqtt {
+    client: AsyncClient,
+    device_id: String,
+}
+
+impl Mqtt {
+    /// 连接 broker；eventloop 在后台跑
+    pub async fn connect(device_id: &str, host: &str, port: u16) -> Result<Self> {
+        let mut mopts = MqttOptions::new(device_id, host, port);
+        mopts.set_keep_alive(Duration::from_secs(30));
+        mopts.set_clean_session(false);
+        mopts.set_inflight(16);
+
+        let (client, mut eventloop) = AsyncClient::new(mopts, 16);
+
+        // 后台任务：心跳 / 重连 / ack
+        tokio::spawn(async move {
+            loop {
+                match eventloop.poll().await {
+                    Ok(Event::Incoming(Incoming::PubAck(_))) => {}
+                    Ok(_) => {}
+                    Err(e) => {
+                        warn!(error = %e, "mqtt eventloop error, will retry");
+                        tokio::time::sleep(Duration::from_secs(2)).await;
+                    }
+                }
+            }
+        });
+
+        info!(device_id, "mqtt client created");
+        Ok(Self {
+            client,
+            device_id: device_id.to_string(),
+        })
+    }
+
+    /// 上线：带版本号
+    pub async fn publish_online(&self) -> Result<()> {
+        let payload = serde_json::json!({
+            "device_id": self.device_id,
+            "version": version::VERSION,
+            "event": "online",
+            "ts": now_unix(),
+        });
+        self.client
+            .publish(
+                format!("devices/{}/status", self.device_id),
+                QoS::AtLeastOnce,
+                false,
+                payload.to_string(),
+            )
+            .await
+            .map_err(|e| anyhow::anyhow!(e).context("publish online failed"))?;
+        Ok(())
+    }
+
+    /// 采样上行
+    pub async fn publish_telemetry(
+        &self,
+        seq: u64,
+        temperature: f64,
+        humidity: Option<f64>,
+    ) -> Result<()> {
+        let payload = serde_json::json!({
+            "device_id": self.device_id,
+            "seq": seq,
+            "ts": now_unix(),
+            "temperature": temperature,
+            "humidity": humidity,
+        });
+        self.client
+            .publish(
+                format!("devices/{}/telemetry", self.device_id),
+                QoS::AtLeastOnce,
+                false,
+                payload.to_string(),
+            )
+            .await
+            .map_err(|e| anyhow::anyhow!(e).context("publish telemetry failed"))?;
+        Ok(())
+    }
+
+    /// 离线广播
+    pub async fn publish_offline(&self) -> Result<()> {
+        let payload = serde_json::json!({
+            "device_id": self.device_id,
+            "version": version::VERSION,
+            "event": "offline",
+            "ts": now_unix(),
+        });
+        // 离线消息也用 QoS1，但失败不致命
+        if let Err(e) = self
+            .client
+            .publish(
+                format!("devices/{}/status", self.device_id),
+                QoS::AtLeastOnce,
+                false,
+                payload.to_string(),
+            )
+            .await
+        {
+            warn!(error = %e, "publish offline failed (ignored)");
+        }
+        Ok(())
+    }
+
+    pub async fn publish_event(&self, event: &str) -> Result<()> {
+        let payload = serde_json::json!({
+            "device_id": self.device_id,
+            "event": event,
+            "version": version::VERSION,
+            "ts": now_unix(),
+        });
+        self.client
+            .publish(format!("devices/{}/events", self.device_id), QoS::AtLeastOnce, false, payload.to_string())
+            .await?;
+        Ok(())
+    }
+}
+
+fn now_unix() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64
+}
