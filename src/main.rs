@@ -4,8 +4,6 @@ mod mqtt;
 mod state;
 mod store;
 mod version;
-//mod ota;
-mod updater;
 mod watchdog;
 
 use tracing::error;

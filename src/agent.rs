@@ -4,9 +4,6 @@ use crate::{
     mqtt::Mqtt, 
     state, 
     store,
-    //ota, 
-    version,
-    updater,
     watchdog,
 };
 use anyhow::Result;
@@ -19,31 +16,32 @@ pub async fn run(cfg: Config) -> Result<()> {
     let mut st = state::load().unwrap_or_default();
     st.boot_count += 1;
     state::save(&st)?;
-    info!(boot_count = st.boot_count, device_id = %st.device_id, version = %&version::version_info(), "agent booted!");
+    info!(boot_count = st.boot_count, device_id = %st.device_id, "agent booted!");
 
     // ---- 本地库 ----
     let conn = store::open()?;
 
     // ---- MQTT（broker 地址从配置来）----
-    let mqtt = Mqtt::connect(&st.device_id, &cfg.mqtt_host, cfg.mqtt_port).await?;
+    let mqtt = Mqtt::connect(
+        &st.device_id,
+        &cfg.mqtt_host,
+        cfg.mqtt_port,
+        cfg.mqtt_username.as_deref(),
+        cfg.mqtt_password.as_deref(),
+        cfg.mqtt_tls,
+        cfg.mqtt_ca_file.as_deref(),
+    )
+    .await?;
     watchdog::start();  // systemd watchdog
     mqtt.publish_online().await?;
 
     // ---- 定时器 ----
     let mut sample_tick = interval(Duration::from_secs(cfg.interval_secs));
     let mut resend_tick = interval(Duration::from_secs(15)); // 每 15s 补发一次
-    //let mut ota_tick = interval(Duration::from_secs(5 * 60)); // 5 分钟查一次
 
     // ---- Ctrl+C / SIGTERM ----
     let ctrl_c = signal::ctrl_c();
     tokio::pin!(ctrl_c);
-
-    // ---- Drop-in 更新监听 ----
-    tokio::spawn(async {
-        if let Err(e) = updater::watch_for_updates().await {
-            tracing::warn!(error = %e, "updater watcher exited");
-        }
-    });
 
     loop {
         tokio::select! {
@@ -80,21 +78,6 @@ pub async fn run(cfg: Config) -> Result<()> {
                     Err(e) => warn!(error = %e, "load unsent failed"),
                 }
             }
-
-            /* 
-            _ = ota_tick.tick() => {
-                match ota::maybe_update(version::VERSION).await {
-                    Ok(true) => {
-                        // 二进制已替换，自己退，systemd 重启新版本
-                        mqtt.publish_event("updating").await.ok();
-                        tracing::info!("ota: restarting into new version");
-                        std::process::exit(0);
-                    }
-                    Ok(false) => { /* 没有更新 */ }
-                    Err(e) => warn!(error = %e, "ota check failed"),
-                }
-            }
-            */
 
             // 关机
             _ = &mut ctrl_c => {

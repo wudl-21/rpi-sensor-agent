@@ -1,0 +1,39 @@
+name: build-and-publish
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-action@stable
+        with:
+          targets: aarch64-unknown-linux-gnu
+
+      - name: Build
+        run: cargo build --target aarch64-unknown-linux-gnu --release
+
+      - name: Stage
+        run: |
+          VER="${GITHUB_REF_NAME}"
+          mkdir -p out
+          cp target/aarch64-unknown-linux-gnu/release/sensor-agent out/sensor-agent
+          cp target/aarch64-unknown-linux-gnu/release/sensor-agent-updater out/sensor-agent-updater
+          SHA=$(sha256sum out/sensor-agent | awk '{print $1}')
+          UPDATER_SHA=$(sha256sum out/sensor-agent-updater | awk '{print $1}')
+          echo "{\"version\":\"$VER\",\"target\":\"aarch64-unknown-linux-gnu\",\"url\":\"https://ota.cn.example.com/releases/$VER/sensor-agent\",\"sha256\":\"$SHA\",\"updater_sha256\":\"$UPDATER_SHA\",\"min_version\":\"0.1.0\"}" > out/latest.json
+          cp out/sensor-agent "out/sensor-agent-$VER"
+          echo "$SHA" > out/sensor-agent.sha256
+          echo "$UPDATER_SHA" > out/sensor-agent-updater.sha256
+
+      - name: Upload to COS Facility (Tencent Cloud)
+        env:
+          COS_BUCKET: ${{ secrets.COS_BUCKET }}
+          COS_KEY: ${{ secrets.COS_KEY }}
+          COS_SECRET: ${{ secrets.COS_SECRET }}
+          COS_ENDPOINT: ${{ secrets.COS_ENDPOINT }}
+        run: |
+          ./coscli cp -r ./out cos://$OSS_BUCKET/releases/ -e $COS_ENDPOINT

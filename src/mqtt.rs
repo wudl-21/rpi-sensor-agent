@@ -1,7 +1,7 @@
 //! MQTT 客户端：长连接 / 上线 / 采样 / 离线
 use crate::version;
-use anyhow::Result;
-use rumqttc::{AsyncClient, Event, Incoming, MqttOptions, QoS};
+use anyhow::{Context, Result};
+use rumqttc::{AsyncClient, Event, Incoming, MqttOptions, QoS, Transport};
 use std::time::Duration;
 use tracing::{info, warn};
 
@@ -12,11 +12,34 @@ pub struct Mqtt {
 
 impl Mqtt {
     /// 连接 broker；eventloop 在后台跑
-    pub async fn connect(device_id: &str, host: &str, port: u16) -> Result<Self> {
+    pub async fn connect(
+        device_id: &str,
+        host: &str,
+        port: u16,
+        username: Option<&str>,
+        password: Option<&str>,
+        tls: bool,
+        ca_file: Option<&str>,
+    ) -> Result<Self> {
         let mut mopts = MqttOptions::new(device_id, host, port);
         mopts.set_keep_alive(Duration::from_secs(30));
         mopts.set_clean_session(false);
         mopts.set_inflight(16);
+
+        match (username, password) {
+            (Some(username), Some(password)) => {
+                mopts.set_credentials(username, password);
+            }
+            (None, None) => {}
+            _ => anyhow::bail!("mqtt_username and mqtt_password must be configured together"),
+        }
+
+        if tls {
+            let ca_file = ca_file.context("mqtt_ca_file is required when mqtt_tls is true")?;
+            let ca = std::fs::read(ca_file)
+                .with_context(|| format!("read MQTT CA certificate: {ca_file}"))?;
+            mopts.set_transport(Transport::tls(ca, None, None));
+        }
 
         let (client, mut eventloop) = AsyncClient::new(mopts, 16);
 

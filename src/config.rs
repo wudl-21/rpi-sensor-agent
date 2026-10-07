@@ -11,6 +11,14 @@ pub struct Config {
     pub mqtt_host: String,
     #[serde(default = "Config::default_mqtt_port")]
     pub mqtt_port: u16,
+    #[serde(default)]
+    pub mqtt_username: Option<String>,
+    #[serde(default)]
+    pub mqtt_password: Option<String>,
+    #[serde(default)]
+    pub mqtt_tls: bool,
+    #[serde(default)]
+    pub mqtt_ca_file: Option<String>,
 }
 
 impl Config {
