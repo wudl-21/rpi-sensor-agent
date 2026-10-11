@@ -32,8 +32,8 @@ jobs:
       - name: Upload to COS Facility (Tencent Cloud)
         env:
           COS_BUCKET: ${{ secrets.COS_BUCKET }}
-          COS_KEY: ${{ secrets.COS_KEY }}
-          COS_SECRET: ${{ secrets.COS_SECRET }}
           COS_ENDPOINT: ${{ secrets.COS_ENDPOINT }}
+          COS_ID: ${{ secrets.COS_ID }}
+          COS_KEY: ${{ secrets.COS_KEY }}
         run: |
-          ./coscli cp -r ./out cos://$OSS_BUCKET/releases/ -e $COS_ENDPOINT
+          ./coscli cp -r ./out cos://$COS_BUCKET/releases/ -e $COS_ENDPOINT

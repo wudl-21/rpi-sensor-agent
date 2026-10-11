@@ -1,4 +1,5 @@
 //! 单向 scp 发布更新：按 release ID 校验、安装并重启服务。
+use crate::health::{self, RollbackInfo};
 use anyhow::{Context, Result};
 use notify::Watcher;
 use sha2::{Digest, Sha256};
@@ -7,8 +8,13 @@ use tokio::time::{interval, Duration};
 use tracing::{info, warn};
 
 const INCOMING_DIR: &str = "/var/lib/sensor-agent/incoming";
+const MANIFEST_FILE: &str = "/var/lib/sensor-agent/release.json";
+const MANIFEST_PREV: &str = "/var/lib/sensor-agent/release.json.prev";
 const CURRENT_BIN: &str = "/usr/local/bin/sensor-agent";
+const CURRENT_BIN_PREV: &str = "/usr/local/bin/sensor-agent.prev";
 const CURRENT_UPDATER: &str = "/usr/local/bin/sensor-agent-updater";
+const CURRENT_UPDATER_PREV: &str = "/usr/local/bin/sensor-agent-updater.prev";
+const STATE_FILE: &str = "/var/lib/sensor-agent/state.json";
 
 /// 监听、轮询并恢复 incoming/ 中的已提交发布。
 pub async fn watch_for_updates() -> Result<()> {
@@ -24,18 +30,18 @@ pub async fn watch_for_updates() -> Result<()> {
         .watch(Path::new(INCOMING_DIR), notify::RecursiveMode::NonRecursive)
         .context("watch incoming dir")?;
 
-    try_ready_releases();
+    try_ready_releases().await;
     let mut retry = interval(Duration::from_secs(5));
 
     loop {
         tokio::select! {
-            Some(_) = rx.recv() => try_ready_releases(),
-            _ = retry.tick() => try_ready_releases(),
+            Some(_) = rx.recv() => try_ready_releases().await,
+            _ = retry.tick() => try_ready_releases().await,
         }
     }
 }
 
-fn try_ready_releases() {
+async fn try_ready_releases() {
     let release_ids = match ready_release_ids() {
         Ok(ids) => ids,
         Err(error) => {
@@ -46,7 +52,7 @@ fn try_ready_releases() {
 
     for release_id in release_ids {
         info!(%release_id, "ready release detected, trying to apply");
-        if let Err(error) = try_apply_update(&release_id) {
+        if let Err(error) = try_apply_update(&release_id).await {
             warn!(%error, release_id, "release is incomplete or invalid, will retry");
         }
     }
@@ -85,7 +91,7 @@ fn release_path(release_id: &str, suffix: &str) -> PathBuf {
 }
 
 /// 校验、安装并重启服务。
-fn try_apply_update(release_id: &str) -> Result<()> {
+async fn try_apply_update(release_id: &str) -> Result<()> {
     let ready_path = release_path(release_id, "ready");
     let service_path = release_path(release_id, "sensor-agent");
     let updater_path = release_path(release_id, "sensor-agent-updater");
@@ -121,7 +127,7 @@ fn try_apply_update(release_id: &str) -> Result<()> {
         anyhow::bail!("sensor-agent-updater sha256 mismatch");
     }
 
-    if let Ok(old_manifest) = std::fs::read_to_string("/var/lib/sensor-agent/release.json")
+    if let Ok(old_manifest) = std::fs::read_to_string(MANIFEST_FILE)
         && let (Some(old), Some(new)) = (j_parse(&old_manifest), manifest["version"].as_str())
         && new <= old.as_str()
     {
@@ -130,22 +136,84 @@ fn try_apply_update(release_id: &str) -> Result<()> {
         return Ok(());
     }
 
-    std::fs::copy(CURRENT_BIN, format!("{CURRENT_BIN}.prev")).ok();
+    health::clear_healthy()?;
+    std::fs::copy(CURRENT_BIN, CURRENT_BIN_PREV).context("backup sensor-agent")?;
+    std::fs::copy(CURRENT_UPDATER, CURRENT_UPDATER_PREV).ok();
+    if Path::new(MANIFEST_FILE).exists() {
+        std::fs::copy(MANIFEST_FILE, MANIFEST_PREV).context("backup release manifest")?;
+    }
     install_binary(&service_path, CURRENT_BIN).context("install sensor-agent")?;
     install_binary(&updater_path, CURRENT_UPDATER).context("install updater")?;
-    atomic_copy(&manifest_path, "/var/lib/sensor-agent/release.json")?;
+    atomic_copy(&manifest_path, MANIFEST_FILE)?;
 
+    restart_agent()?;
+    tokio::time::sleep(Duration::from_secs(30)).await;
+
+    if health::is_healthy() {
+        cleanup(release_id);
+        info!(%release_id, "release applied and became healthy");
+        return Ok(());
+    }
+
+    warn!(%release_id, "release did not become healthy, rolling back");
+    rollback_release(release_id, &manifest).context("rollback release")
+}
+
+fn rollback_release(release_id: &str, new_manifest: &serde_json::Value) -> Result<()> {
+    let from = new_manifest["version"]
+        .as_str()
+        .unwrap_or("unknown")
+        .to_owned();
+    let old_manifest = std::fs::read_to_string(MANIFEST_PREV).unwrap_or_default();
+    let to = j_parse(&old_manifest).unwrap_or_else(|| "unknown".to_owned());
+    let bad_binary = format!("{CURRENT_BIN}.bad");
+
+    let _ = std::fs::remove_file(&bad_binary);
+    std::fs::rename(CURRENT_BIN, &bad_binary).context("keep bad binary")?;
+    std::fs::rename(CURRENT_BIN_PREV, CURRENT_BIN).context("restore sensor-agent")?;
+
+    if Path::new(CURRENT_UPDATER_PREV).exists() {
+        std::fs::remove_file(CURRENT_UPDATER).ok();
+        std::fs::rename(CURRENT_UPDATER_PREV, CURRENT_UPDATER)
+            .context("restore updater")?;
+    }
+
+    if Path::new(MANIFEST_PREV).exists() {
+        std::fs::remove_file(MANIFEST_FILE).ok();
+        std::fs::rename(MANIFEST_PREV, MANIFEST_FILE)
+            .context("restore release manifest")?;
+    } else {
+        std::fs::remove_file(MANIFEST_FILE).ok();
+    }
+
+    health::clear_healthy()?;
+    health::write_rollback(&RollbackInfo {
+        device_id: device_id_from_state(),
+        event: "rollback".to_owned(),
+        from,
+        to,
+        bad_binary_kept: bad_binary,
+    })?;
+    cleanup(release_id);
+    restart_agent()
+}
+
+fn restart_agent() -> Result<()> {
     std::process::Command::new("systemctl")
         .args(["restart", "sensor-agent.service"])
         .status()
         .context("restart sensor-agent.service")?
         .success()
         .then_some(())
-        .ok_or_else(|| anyhow::anyhow!("systemctl restart failed"))?;
+        .ok_or_else(|| anyhow::anyhow!("systemctl restart failed"))
+}
 
-    cleanup(release_id);
-    info!(%release_id, "release applied");
-    Ok(())
+fn device_id_from_state() -> String {
+    std::fs::read_to_string(STATE_FILE)
+        .ok()
+        .and_then(|data| serde_json::from_str::<serde_json::Value>(&data).ok())
+        .and_then(|state| state["device_id"].as_str().map(str::to_owned))
+        .unwrap_or_else(|| "unknown".to_owned())
 }
 
 fn file_sha256(path: &Path) -> Result<String> {

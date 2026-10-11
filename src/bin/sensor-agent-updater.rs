@@ -1,5 +1,7 @@
 #[path = "../updater.rs"]
 mod updater;
+#[path = "../health.rs"]
+mod health;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {

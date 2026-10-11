@@ -1,8 +1,8 @@
 {
-  "version": "5c1d1ed",
+  "version": "68b3231",
   "target": "aarch64-unknown-linux-gnu",
   "sha256": "18d02b7ade61d52c1d1d0d5ba2de42717a66aded663f9c990796e35366dd0396",
   "updater_sha256": "7b6ab7c7b6ded0cf203b81207dab625d3fb2f677e03b31d52b3f1ff8925577e4",
-  "built_at": "2026-10-07T11:31:44Z",
-  "git_sha": "5c1d1ed"
+  "built_at": "2026-10-07T11:45:40Z",
+  "git_sha": "68b3231"
 }

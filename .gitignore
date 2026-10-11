@@ -1,1 +1,6 @@
+.gitignore
+/.devcontainer
 /target
+/deploy-artifacts
+/mosquitto
+/scripts

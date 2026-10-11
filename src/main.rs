@@ -1,10 +1,10 @@
 mod agent;
 mod config;
+mod health;
 mod mqtt;
 mod state;
 mod store;
 mod version;
-mod watchdog;
 
 use tracing::error;
 

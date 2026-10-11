@@ -9,6 +9,7 @@ VERSION="${1:-$(git describe --tags --always)}"
 GIT_SHA="$(git rev-parse --short HEAD)"
 
 echo "==> build $VERSION ($GIT_SHA)"
+cargo clean --target "$TARGET" --release
 cargo build --target "$TARGET" --release --bin sensor-agent --bin sensor-agent-updater
 
 mkdir -p "$OUT"

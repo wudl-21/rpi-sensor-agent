@@ -1,10 +1,10 @@
 //! 主循环：采样 / 发 MQTT / 重传 / 优雅退出
 use crate::{
     config::Config, 
+    health,
     mqtt::Mqtt, 
     state, 
     store,
-    watchdog,
 };
 use anyhow::Result;
 use tokio::signal;
@@ -32,8 +32,8 @@ pub async fn run(cfg: Config) -> Result<()> {
         cfg.mqtt_ca_file.as_deref(),
     )
     .await?;
-    watchdog::start();  // systemd watchdog
     mqtt.publish_online().await?;
+    let mut pending_rollback = health::read_rollback()?;
 
     // ---- 定时器 ----
     let mut sample_tick = interval(Duration::from_secs(cfg.interval_secs));
@@ -53,7 +53,23 @@ pub async fn run(cfg: Config) -> Result<()> {
                 match store::insert(&conn, &st.device_id, temp, hum) {
                     Ok(id) => {
                         st.sample_seq += 1;
-                        state::save(&st).ok(); // 失败不管
+                        if let Err(error) = state::save(&st) {
+                            warn!(%error, "save state after sample failed");
+                        } else if !health::is_healthy() {
+                            health::mark_healthy()?;
+                            info!("agent became healthy after first successful sample");
+                        }
+
+                        if let Some(rollback) = pending_rollback.as_ref() {
+                            match mqtt.publish_rollback(rollback).await {
+                                Ok(()) => {
+                                    health::clear_rollback()?;
+                                    pending_rollback = None;
+                                    info!("rollback event published");
+                                }
+                                Err(error) => warn!(%error, "rollback event publish failed"),
+                            }
+                        }
 
                         if let Err(e) = mqtt.publish_telemetry(st.sample_seq, temp, hum).await {
                             warn!(error = %e, row_id = id, "telemetry not sent, will resend later");

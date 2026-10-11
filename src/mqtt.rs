@@ -1,5 +1,5 @@
 //! MQTT 客户端：长连接 / 上线 / 采样 / 离线
-use crate::version;
+use crate::{health::RollbackInfo, version};
 use anyhow::{Context, Result};
 use rumqttc::{AsyncClient, Event, Incoming, MqttOptions, QoS, Transport};
 use std::time::Duration;
@@ -144,6 +144,28 @@ impl Mqtt {
         self.client
             .publish(format!("devices/{}/events", self.device_id), QoS::AtLeastOnce, false, payload.to_string())
             .await?;
+        Ok(())
+    }
+
+    pub async fn publish_rollback(&self, rollback: &RollbackInfo) -> Result<()> {
+        let payload = serde_json::json!({
+            "device_id": rollback.device_id,
+            "event": "rollback",
+            "from": rollback.from,
+            "to": rollback.to,
+            "bad_binary_kept": rollback.bad_binary_kept,
+            "ts": now_unix(),
+        });
+
+        self.client
+            .publish(
+                format!("devices/{}/events", self.device_id),
+                QoS::AtLeastOnce,
+                false,
+                payload.to_string(),
+            )
+            .await
+            .map_err(|error| anyhow::anyhow!(error).context("publish rollback failed"))?;
         Ok(())
     }
 }
