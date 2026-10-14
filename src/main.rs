@@ -1,7 +1,10 @@
 mod agent;
+mod command;
 mod config;
 mod health;
 mod mqtt;
+mod ota;
+mod paths;
 mod state;
 mod store;
 mod version;
@@ -12,15 +15,28 @@ use tracing::error;
 async fn main() {
     tracing_subscriber::fmt().with_target(false).init();
 
-    let cfg = match config::Config::load() {
-        Ok(c) => c,
-        Err(e) => {
-            error!(error = %e, "config load failed");
-            return; // systemd 会看到非 0 / 或 restart
+    let paths = match paths::InstallPaths::load() {
+        Ok(paths) => paths,
+        Err(error) => {
+            error!(%error, "install layout load failed");
+            std::process::exit(1);
         }
     };
 
-    if let Err(e) = agent::run(cfg).await {
-        error!(error = %e, "agent exited with error");
+    let cfg = match config::Config::load(&paths) {
+        Ok(c) => c,
+        Err(e) => {
+            error!(error = %e, "config load failed");
+            std::process::exit(1);
+        }
+    };
+
+    match agent::run(cfg, paths).await {
+        Ok(agent::ExitAction::Stop) => {}
+        Ok(agent::ExitAction::Restart) => std::process::exit(agent::RESTART_EXIT_CODE),
+        Err(error) => {
+            error!(%error, "agent exited with error");
+            std::process::exit(1);
+        }
     }
 }

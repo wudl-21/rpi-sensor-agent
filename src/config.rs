@@ -1,7 +1,6 @@
-use serde::Deserialize;
 use anyhow::Context;
-
-const CONFIG_PATH: &str = "/etc/sensor-agent/config.toml";
+use serde::Deserialize;
+use crate::paths::InstallPaths;
 
 #[derive(Debug, Deserialize, Default)]
 pub struct Config {
@@ -19,11 +18,13 @@ pub struct Config {
     pub mqtt_tls: bool,
     #[serde(default)]
     pub mqtt_ca_file: Option<String>,
+    #[serde(default = "Config::default_ota_base_url")]
+    pub ota_base_url: String,
 }
 
 impl Config {
-    pub fn load() -> anyhow::Result<Self> {
-        let s = std::fs::read_to_string(CONFIG_PATH).context("read config file")?;
+    pub fn load(paths: &InstallPaths) -> anyhow::Result<Self> {
+        let s = std::fs::read_to_string(&paths.config_file).context("read config file")?;
         let cfg = toml::from_str::<Config>(&s).context("parse config file")?;
         Ok(cfg)
     }
@@ -38,5 +39,9 @@ impl Config {
 
     fn default_mqtt_port() -> u16 {
         1883
+    }
+
+    fn default_ota_base_url() -> String {
+        "https://ota.cn.example.com/releases".to_owned()
     }
 }

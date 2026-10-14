@@ -9,12 +9,23 @@ services:
     restart: unless-stopped
 
   devcontainer:
+    build:
+      context: ..
+      dockerfile: .devcontainer/Dockerfile
     image: sensor-agent-devcontainer:local
     volumes:
       - ../.:/workspace:cached
+      - cargo-registry:/usr/local/cargo/registry
+      - cargo-git:/usr/local/cargo/git
+      - cargo-target:/workspace/target
     working_dir: /workspace
     command: sleep infinity
     depends_on:
       - mqtt
     cap_add:
       - NET_RAW
+
+volumes:
+  cargo-registry:
+  cargo-git:
+  cargo-target:

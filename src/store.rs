@@ -1,15 +1,14 @@
 use anyhow::Result;
+use crate::paths::InstallPaths;
 use rusqlite::Connection;
 
-const DB_PATH: &str = "/var/lib/sensor-agent/samples.db";
-
-pub fn open() -> Result<Connection> {
-    if let Some(p) = std::path::Path::new(DB_PATH).parent() {
+pub fn open(paths: &InstallPaths) -> Result<Connection> {
+    let database_file = paths.database_file();
+    if let Some(p) = database_file.parent() {
         std::fs::create_dir_all(p).map_err(|e| anyhow::anyhow!(e).context("mkdir state dir"))?;
     }
 
-    let conn = Connection::open(DB_PATH)
-        .map_err(|e| anyhow::anyhow!(e).context("open sqlite"))?;
+    let conn = Connection::open(database_file).map_err(|e| anyhow::anyhow!(e).context("open sqlite"))?;
 
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS samples (
@@ -50,9 +49,8 @@ pub fn mark_sent(conn: &Connection, id: i64) -> Result<()> {
 }
 
 pub fn unsent(conn: &Connection) -> Result<Vec<(i64, f64, Option<f64>)>> {
-    let mut stmt = conn.prepare(
-        "SELECT id, temperature, humidity FROM samples WHERE sent=0 ORDER BY id ASC",
-    )?;
+    let mut stmt =
+        conn.prepare("SELECT id, temperature, humidity FROM samples WHERE sent=0 ORDER BY id ASC")?;
     let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
     Ok(rows.filter_map(|r| r.ok()).collect())
 }

@@ -1,0 +1,13 @@
+[Unit]
+Description=Sensor Agent Updater
+After=local-fs.target network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=@UPDATER_BIN@
+Restart=always
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target

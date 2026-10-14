@@ -1,6 +1,10 @@
 .gitignore
-/.devcontainer
+.release-seq
+/scripts
 /target
 /deploy-artifacts
 /mosquitto
-/scripts
+/test/certs
+/test/package
+/test/broker/passwd
+/test/ota/releases/*

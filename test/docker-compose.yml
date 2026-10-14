@@ -1,0 +1,73 @@
+services:
+  test-broker:
+    build: ./broker
+    container_name: sensor-test-broker
+    ports:
+      - "18883:1883"
+      - "18884:8883"
+      - "9002:9001"
+    volumes:
+      - ./broker:/src-config:ro
+      - ./certs:/src-certs:ro
+
+  ota-server:
+    image: nginx:alpine
+    container_name: sensor-test-ota
+    ports:
+      - "8090:80"
+    volumes:
+      - ./ota:/usr/share/nginx/html:ro
+
+  console:
+    image: nginx:alpine
+    container_name: sensor-test-console
+    ports:
+      - "8081:80"
+    volumes:
+      - ./console/ui:/usr/share/nginx/html:ro
+
+  device-01: &device
+    build: ./device
+    container_name: sensor-test-device-01
+    hostname: sim-device-01
+    privileged: true
+    restart: on-failure
+    command: ["/sbin/init"]
+    ports:
+      - "2221:22"
+    volumes:
+      - device-01-state:/var/lib/sensor-agent
+      - ./package:/root/package:ro
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+    tmpfs:
+      - /run
+      - /run/lock
+      - /tmp
+    depends_on:
+      - test-broker
+      - ota-server
+
+  device-02:
+    <<: *device
+    container_name: sensor-test-device-02
+    hostname: sim-device-02
+    ports: ["2222:22"]
+    volumes:
+      - device-02-state:/var/lib/sensor-agent
+      - ./package:/root/package:ro
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+
+  device-03:
+    <<: *device
+    container_name: sensor-test-device-03
+    hostname: sim-device-03
+    ports: ["2223:22"]
+    volumes:
+      - device-03-state:/var/lib/sensor-agent
+      - ./package:/root/package:ro
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+
+volumes:
+  device-01-state:
+  device-02-state:
+  device-03-state:

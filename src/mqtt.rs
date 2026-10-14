@@ -1,8 +1,9 @@
 //! MQTT 客户端：长连接 / 上线 / 采样 / 离线
-use crate::{health::RollbackInfo, version};
+use crate::{command::Topic, health::RollbackInfo, version};
 use anyhow::{Context, Result};
 use rumqttc::{AsyncClient, Event, Incoming, MqttOptions, QoS, Transport};
 use std::time::Duration;
+use tokio::sync::mpsc;
 use tracing::{info, warn};
 
 pub struct Mqtt {
@@ -20,7 +21,7 @@ impl Mqtt {
         password: Option<&str>,
         tls: bool,
         ca_file: Option<&str>,
-    ) -> Result<Self> {
+    ) -> Result<(Self, mpsc::Receiver<Vec<u8>>)> {
         let mut mopts = MqttOptions::new(device_id, host, port);
         mopts.set_keep_alive(Duration::from_secs(30));
         mopts.set_clean_session(false);
@@ -42,11 +43,25 @@ impl Mqtt {
         }
 
         let (client, mut eventloop) = AsyncClient::new(mopts, 16);
+        let (command_tx, command_rx) = mpsc::channel(16);
+        let command_topic = Topic::Commands.format(device_id);
+        client
+            .subscribe(command_topic.clone(), QoS::AtLeastOnce)
+            .await
+            .context("subscribe commands")?;
+        let event_device_id = device_id.to_owned();
 
-        // 后台任务：心跳 / 重连 / ack
+        // 后台任务：心跳、重连、发布确认和下行命令转发。
         tokio::spawn(async move {
             loop {
                 match eventloop.poll().await {
+                    Ok(Event::Incoming(Incoming::Publish(packet)))
+                        if packet.topic == command_topic =>
+                    {
+                        if command_tx.send(packet.payload.to_vec()).await.is_err() {
+                            break;
+                        }
+                    }
                     Ok(Event::Incoming(Incoming::PubAck(_))) => {}
                     Ok(_) => {}
                     Err(e) => {
@@ -58,10 +73,13 @@ impl Mqtt {
         });
 
         info!(device_id, "mqtt client created");
-        Ok(Self {
-            client,
-            device_id: device_id.to_string(),
-        })
+        Ok((
+            Self {
+                client,
+                device_id: event_device_id,
+            },
+            command_rx,
+        ))
     }
 
     /// 上线：带版本号
@@ -69,12 +87,13 @@ impl Mqtt {
         let payload = serde_json::json!({
             "device_id": self.device_id,
             "version": version::VERSION,
+            "release_seq": version::release_seq(),
             "event": "online",
             "ts": now_unix(),
         });
         self.client
             .publish(
-                format!("devices/{}/status", self.device_id),
+                Topic::Status.format(&self.device_id),
                 QoS::AtLeastOnce,
                 false,
                 payload.to_string(),
@@ -100,7 +119,7 @@ impl Mqtt {
         });
         self.client
             .publish(
-                format!("devices/{}/telemetry", self.device_id),
+                Topic::Telemetry.format(&self.device_id),
                 QoS::AtLeastOnce,
                 false,
                 payload.to_string(),
@@ -115,6 +134,7 @@ impl Mqtt {
         let payload = serde_json::json!({
             "device_id": self.device_id,
             "version": version::VERSION,
+            "release_seq": version::release_seq(),
             "event": "offline",
             "ts": now_unix(),
         });
@@ -122,7 +142,7 @@ impl Mqtt {
         if let Err(e) = self
             .client
             .publish(
-                format!("devices/{}/status", self.device_id),
+                Topic::Status.format(&self.device_id),
                 QoS::AtLeastOnce,
                 false,
                 payload.to_string(),
@@ -139,10 +159,16 @@ impl Mqtt {
             "device_id": self.device_id,
             "event": event,
             "version": version::VERSION,
+            "release_seq": version::release_seq(),
             "ts": now_unix(),
         });
         self.client
-            .publish(format!("devices/{}/events", self.device_id), QoS::AtLeastOnce, false, payload.to_string())
+            .publish(
+                Topic::Events.format(&self.device_id),
+                QoS::AtLeastOnce,
+                false,
+                payload.to_string(),
+            )
             .await?;
         Ok(())
     }
@@ -159,13 +185,43 @@ impl Mqtt {
 
         self.client
             .publish(
-                format!("devices/{}/events", self.device_id),
+                Topic::Events.format(&self.device_id),
                 QoS::AtLeastOnce,
                 false,
                 payload.to_string(),
             )
             .await
             .map_err(|error| anyhow::anyhow!(error).context("publish rollback failed"))?;
+        Ok(())
+    }
+
+    pub async fn publish_ack(
+        &self,
+        command_id: &str,
+        op: &str,
+        status: &str,
+        error: Option<&str>,
+    ) -> Result<()> {
+        let payload = serde_json::json!({
+            "device_id": self.device_id,
+            "command_id": command_id,
+            "op": op,
+            "status": status,
+            "error": error,
+            "version": version::VERSION,
+            "release_seq": version::release_seq(),
+            "ts": now_unix(),
+        });
+
+        self.client
+            .publish(
+                Topic::CommandAck.format(&self.device_id),
+                QoS::AtLeastOnce,
+                false,
+                payload.to_string(),
+            )
+            .await
+            .context("publish command ack")?;
         Ok(())
     }
 }

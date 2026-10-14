@@ -1,8 +1,11 @@
 {
-  "version": "68b3231",
+  "schema": 1,
+  "version": "e29d634",
+  "release_seq": 4,
+  "release_id": "e29d634-4",
   "target": "aarch64-unknown-linux-gnu",
-  "sha256": "18d02b7ade61d52c1d1d0d5ba2de42717a66aded663f9c990796e35366dd0396",
-  "updater_sha256": "7b6ab7c7b6ded0cf203b81207dab625d3fb2f677e03b31d52b3f1ff8925577e4",
-  "built_at": "2026-10-07T11:45:40Z",
-  "git_sha": "68b3231"
+  "sha256": "c99f664bb3c40cd6abcd28a78e51512bf6015ba18bc736fa8a4f8d54aafb5a89",
+  "updater_sha256": "85834a7774505385e0547392acbcbfffcd0b958d22adaf60bea6a1706ad95937",
+  "built_at": "2026-10-12T14:15:00Z",
+  "git_sha": "e29d634"
 }

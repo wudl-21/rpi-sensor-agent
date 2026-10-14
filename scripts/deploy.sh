@@ -2,7 +2,7 @@
 set -euo pipefail
 
 PI_HOST="${PI_HOST:-rpi3bv2}"
-INCOMING=/var/lib/sensor-agent/incoming
+INCOMING="${INCOMING:-/var/lib/sensor-agent/incoming}"
 RELEASE_ID="${RELEASE_ID:-$(date -u +%Y%m%dT%H%M%SZ)-$$}"
 
 if [[ ! "$RELEASE_ID" =~ ^[A-Za-z0-9._-]+$ ]]; then

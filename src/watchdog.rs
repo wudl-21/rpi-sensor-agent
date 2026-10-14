@@ -1,3 +1,5 @@
+// deprecated: use health.rs instead
+
 use std::time::Duration;
 use tracing::{info, warn};
 

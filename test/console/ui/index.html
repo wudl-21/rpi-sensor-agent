@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sensor Command Center</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="shell">
+    <header class="topbar">
+      <div class="brand"><span class="brand-mark">S</span><div><strong>Sensor Command Center</strong><small>LOCAL MQTT CONTROL PLANE</small></div></div>
+      <div class="connection"><span id="connectionDot" class="status-dot offline"></span><span id="connectionText">Disconnected</span><button id="settingsButton" class="icon-button" title="Connection settings" aria-label="Connection settings">⚙</button></div>
+    </header>
+
+    <main>
+      <section class="hero-row">
+        <div><p class="eyebrow">FIELD OPERATIONS / 01</p><h1>Device intelligence,<br><em>without the guesswork.</em></h1></div>
+        <div class="hero-note"><span class="pulse"></span><span>Live broker feed<br><b id="messageCount">0</b> messages this session</span></div>
+      </section>
+
+      <section class="metrics" aria-label="Overview">
+        <article class="metric"><span>DEVICES SEEN</span><strong id="deviceCount">0</strong><small>in current session</small></article>
+        <article class="metric"><span>ONLINE NOW</span><strong id="onlineCount">0</strong><small>last status signal</small></article>
+        <article class="metric"><span>LAST TEMPERATURE</span><strong id="temperature">--</strong><small id="temperatureDevice">waiting for telemetry</small></article>
+        <article class="metric accent"><span>COMMANDS SENT</span><strong id="commandCount">0</strong><small>awaiting device ACK</small></article>
+      </section>
+
+      <section class="workspace">
+        <div class="panel devices-panel">
+          <div class="panel-heading"><div><p class="eyebrow">FLEET VIEW</p><h2>Connected devices</h2></div><button id="clearButton" class="quiet-button">Clear view</button></div>
+          <div class="table-wrap"><table><thead><tr><th>Device</th><th>State</th><th>Version</th><th>Last signal</th><th></th></tr></thead><tbody id="deviceRows"><tr class="empty-row"><td colspan="5">Waiting for devices to speak...</td></tr></tbody></table></div>
+        </div>
+        <aside class="panel command-panel">
+          <div class="panel-heading"><div><p class="eyebrow">REMOTE ACTIONS</p><h2>Send command</h2></div><span class="lock-label">QoS 1</span></div>
+          <label class="field-label" for="deviceId">Target device</label>
+          <input id="deviceId" class="field" list="deviceOptions" placeholder="pi-xxxx" autocomplete="off">
+          <datalist id="deviceOptions"></datalist>
+          <label class="field-label" for="commandSelect">Operation</label>
+          <select id="commandSelect" class="field"><option value="set_interval">Set interval</option><option value="publish_now">Publish now</option><option value="trigger_ota">Trigger OTA</option><option value="reboot">Reboot service</option><option value="stop">Stop service</option></select>
+          <div id="intervalField" class="field-group"><label class="field-label" for="intervalValue">Interval / seconds</label><input id="intervalValue" class="field" type="number" min="1" max="3600" value="10"></div>
+          <button id="sendButton" class="send-button"><span>Send command</span><span class="arrow">↗</span></button>
+          <p class="command-warning">Commands are published to the local broker and may restart a device. Confirm your target before sending.</p>
+        </aside>
+      </section>
+
+      <section class="panel activity-panel">
+        <div class="panel-heading"><div><p class="eyebrow">SIGNAL LOG</p><h2>Activity stream</h2></div><div class="stream-actions"><span id="streamFilter">ALL TOPICS</span><button id="pauseButton" class="quiet-button">Pause</button></div></div>
+        <div id="activity" class="activity-list"><div class="activity-empty">No messages received yet.</div></div>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="settingsDialog"><form method="dialog" id="settingsForm"><div class="dialog-heading"><div><p class="eyebrow">BROKER ACCESS</p><h2>Connection settings</h2></div><button class="close-button" value="cancel" aria-label="Close">×</button></div><label class="field-label" for="brokerHost">WebSocket broker</label><input id="brokerHost" class="field" placeholder="ws://localhost:9001/mqtt"><label class="field-label" for="mqttUser">Username</label><input id="mqttUser" class="field" autocomplete="username" value="sensor-console"><label class="field-label" for="mqttPassword">Password</label><input id="mqttPassword" class="field" type="password" autocomplete="current-password"><p class="dialog-note">Credentials stay in this browser only. The console account can monitor devices and publish commands.</p><button class="send-button" value="default"><span>Connect to broker</span><span class="arrow">↗</span></button></form></dialog>
+  <div id="toast" class="toast" role="status"></div>
+  <script src="https://unpkg.com/mqtt@5.10.3/dist/mqtt.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

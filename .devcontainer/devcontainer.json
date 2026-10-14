@@ -1,5 +1,37 @@
 {
     "dockerComposeFile": "docker-compose.yml",
     "service": "devcontainer",
-    "workspaceFolder": "/workspace"
+    "workspaceFolder": "/workspace",
+    "remoteUser": "vscode",
+    "remoteEnv": {
+        "SSH_AUTH_SOCK": "/tmp/ssh-agent.sock"
+    },
+    "mounts": [
+        {
+            "type": "bind",
+            "source": "${localEnv:HOME}/.ssh/ssh-agent.sock",
+            "target": "/tmp/ssh-agent.sock"
+        },
+        {
+            "type": "bind",
+            "source": "${localEnv:HOME}/.ssh/config",
+            "target": "/home/vscode/.ssh/config",
+            "readonly": true
+        },
+        {
+            "type": "bind",
+            "source": "${localEnv:HOME}/.ssh/known_hosts",
+            "target": "/home/vscode/.ssh/known_hosts",
+            "readonly": true
+        }
+    ],
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "rust-lang.rust-analyzer",
+                "tamasfe.even-better-toml",
+                "redhat.vscode-yaml"
+            ]
+        }
+    }
 }
